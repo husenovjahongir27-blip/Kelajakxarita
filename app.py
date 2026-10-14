@@ -6,15 +6,13 @@ from streamlit_folium import st_folium
 from datetime import datetime
 
 st.set_page_config(page_title="KelajakXarita", page_icon="🌍", layout="wide")
-st.markdown("""
-<style>
-.block-container{padding-top:1rem;max-width:1600px}
+st.markdown("""<style>
+.block-container{padding-top:1rem;max-width:1800px}
 [data-testid="stSidebar"]{background:#0b2030}
 [data-testid="stSidebar"] *{color:#eefaff}
-.hero{padding:22px;border-radius:16px;background:linear-gradient(120deg,#071826,#0c4a56);color:white;border:1px solid #16716e}
-.hero h1{color:white;margin:0}.hero p{color:#c4e5e8;margin-bottom:0}
-div[data-testid="stMetric"]{background:#102b3a;border:1px solid #205467;padding:12px;border-radius:12px}
-div[data-testid="stMetric"] label,div[data-testid="stMetric"] [data-testid="stMetricValue"]{color:#f5ffff}
+.hero{padding:22px;border-radius:16px;background:linear-gradient(120deg,#071826,#0c4a56);color:white}
+.hero h1{color:white;margin:0}.hero p{color:#c4e5e8}
+.map-heading{font-size:1.1rem;font-weight:700;margin-bottom:.2rem}
 </style>""", unsafe_allow_html=True)
 
 places = {
@@ -44,33 +42,42 @@ with st.sidebar:
     people=st.slider("Aholi o‘zgarishi (%)",-10,60,15,5)
 
 lat,lon,zoom=places[region]
-st.markdown(f'<div class="hero"><h1>🌍 KelajakXarita</h1><p>Bugungi hududni o‘rganing. Muqobil kelajak ssenariylarini solishtiring. · Sirdaryo pilot loyihasi</p></div>',unsafe_allow_html=True)
-st.warning("DEMO: ko‘rsatkichlar namoyish uchun, haqiqiy prognoz emas. Xarita nuqtalari orientir bo‘lib, rasmiy ma’muriy chegaralar hisoblanmaydi.")
-
+st.markdown('<div class="hero"><h1>🌍 KelajakXarita</h1><p>Bugungi hududni o‘rganing. Muqobil kelajak ssenariylarini solishtiring · Sirdaryo pilot</p></div>',unsafe_allow_html=True)
+st.warning("DEMO: ko‘rsatkichlar namoyish uchun, haqiqiy prognoz emas. Rangli belgilar shartli; rasmiy chegaralar emas.")
 score=max(0,min(100,50+0.30*green+0.25*water-0.20*built+0.08*rain+0.10*farm-0.05*max(people,0)))
 m1,m2,m3,m4=st.columns(4)
 m1.metric("Hudud",region);m2.metric("Ssenariy yili",str(year));m3.metric("Shartli taqqoslash bali",f"{score:.1f}/100",f"{score-50:+.1f}");m4.metric("Sozlanadigan omillar","6 ta")
+tabmap,tabsc,tabdata,tababout=st.tabs(["🗺️ Xaritalar taqqoslanishi","🔮 Ssenariylar","📊 Tahlil va eksport","ℹ️ Loyiha haqida"])
 
-tabmap,tabsc,tabdata,tababout=st.tabs(["🗺️ Xarita","🔮 Ssenariylar","📊 Tahlil va eksport","ℹ️ Loyiha haqida"])
+def make_map(location, zoom, scenario=False):
+    fmap=folium.Map(location=location,zoom_start=zoom,tiles="OpenStreetMap" if map_type=="OpenStreetMap" else "CartoDB positron",control_scale=True)
+    folium.Marker(location,tooltip=region,popup=f"{region} — orientir nuqtasi").add_to(fmap)
+    if show_orientirs:
+        for n,(a,b,z) in places.items():
+            if n!=region and abs(a-location[0])<.45 and abs(b-location[1])<.55:
+                folium.CircleMarker([a,b],radius=4,color="#0fc9b5",fill=True,fill_opacity=.8,tooltip=n).add_to(fmap)
+    if scenario and show_scenario:
+        for da,db,label,color,value in [(0.08,-0.08,"Yashil hudud","#12bca8",green),(-.07,.1,"Suv resurslari","#168dd2",water),(.04,.13,"Qurilish","#e6a23c",built)]:
+            folium.CircleMarker([location[0]+da,location[1]+db],radius=max(5,min(14,7+abs(value)/8)),color=color,fill=True,fill_color=color,fill_opacity=.72,tooltip=f"{label} — shartli belgi ({value:+d}%)").add_to(fmap)
+    return fmap
+
 with tabmap:
-    c1,c2=st.columns([1.8,1])
-    with c1:
-        fmap=folium.Map(location=[lat,lon],zoom_start=zoom,tiles="OpenStreetMap" if map_type=="OpenStreetMap" else "CartoDB positron",control_scale=True)
-        folium.Marker([lat,lon],tooltip=region,popup=f"{region} — orientir nuqtasi").add_to(fmap)
-        if show_orientirs:
-            for n,(a,b,z) in places.items():
-                if n!=region and abs(a-lat)<.45 and abs(b-lon)<.55:
-                    folium.CircleMarker([a,b],radius=4,color="#0fc9b5",fill=True,tooltip=n).add_to(fmap)
-        if show_scenario:
-            for da,db,label,color in [(0.08,-0.08,"Yashil hudud","#12bca8"),(-.07,.1,"Suv resurslari","#168dd2"),(.04,.13,"Qurilish","#e6a23c")]:
-                folium.CircleMarker([lat+da,lon+db],radius=8,color=color,fill=True,fill_color=color,fill_opacity=.7,tooltip=label+" — shartli belgi").add_to(fmap)
-        st_folium(fmap,use_container_width=True,height=520,returned_objects=[])
-        st.caption("Xarita qatlamlari internetga bog‘liq. Markerlar ko‘rgazmali; real obyektlar o‘lchovi emas.")
-    with c2:
-        st.subheader("Ssenariy parametrlari")
-        for n,v in [("Yashil hududlar",green),("Suv mavjudligi",water),("Qurilish",built),("Yog‘in",rain),("Sug‘oriladigan yerlar",farm),("Aholi",people)]:
-            st.write(f"{n}: **{v:+d}%**")
-        st.info("Keyingi bosqich: rasmiy tuman poligonlari va sanasi ko‘rsatilgan sun’iy yo‘ldosh qatlamlari.")
+    st.subheader("Bir xil hudud: boshlang‘ich xarita va ssenariy xaritasi")
+    st.caption("Ikkala xarita bir hudud markazida. O‘ngdagi rangli belgilar ko‘rgazmali, haqiqiy o‘zgarish poligonlari emas.")
+    left,right=st.columns(2,gap="medium")
+    with left:
+        st.markdown('<div class="map-heading">1. Hozirgi / boshlang‘ich ko‘rinish</div>',unsafe_allow_html=True)
+        st.caption("Orientir xaritasi · rasmiy o‘lchov emas")
+        st_folium(make_map([lat,lon],zoom,False),key="base_map",use_container_width=True,height=500,returned_objects=[])
+    with right:
+        st.markdown(f'<div class="map-heading">2. {year}-yil ssenariysi</div>',unsafe_allow_html=True)
+        st.caption("Shartli parametrlar asosidagi ko‘rgazmali belgilar")
+        st_folium(make_map([lat,lon],zoom,True),key="future_map",use_container_width=True,height=500,returned_objects=[])
+    st.info("Hozir ikkala xarita ham OpenStreetMap asosida. Kelajak xaritasidagi belgilar haqiqiy prognoz emas. Haqiqiy taqqoslash uchun tarixiy sun’iy yo‘ldosh tasvirlari va GIS tahlili ulanishi kerak.")
+    st.subheader("Ssenariy parametrlari")
+    cols=st.columns(3)
+    for i,(n,v) in enumerate([("Yashil hududlar",green),("Suv mavjudligi",water),("Qurilish",built),("Yog‘in",rain),("Sug‘oriladigan yerlar",farm),("Aholi",people)]):
+        cols[i%3].write(f"**{n}:** {v:+d}%")
 
 with tabsc:
     scen=pd.DataFrame([
@@ -88,23 +95,18 @@ with tabsc:
     if st.session_state.saved: st.dataframe(pd.DataFrame(st.session_state.saved),use_container_width=True,hide_index=True)
 
 with tabdata:
-    rows=[]
-    for label,val in [("Yashil hududlar",green),("Suv mavjudligi",water),("Qurilgan maydon",built),("Yog‘in",rain),("Sug‘oriladigan yerlar",farm),("Aholi",people)]:
-        rows.append({"Omil":label,"Boshlang‘ich indeks":100,"Ssenariy indeksi":max(0,100+val),"Farq (%)":val})
-    df=pd.DataFrame(rows)
+    df=pd.DataFrame([{"Omil":n,"Boshlang‘ich indeks":100,"Ssenariy indeksi":max(0,100+v),"Farq (%)":v} for n,v in [("Yashil hududlar",green),("Suv mavjudligi",water),("Qurilgan maydon",built),("Yog‘in",rain),("Sug‘oriladigan yerlar",farm),("Aholi",people)]])
     st.dataframe(df,use_container_width=True,hide_index=True)
     timeline=pd.DataFrame({"Yil":[2024,2027,2030,2035,2040],"Yashil hududlar":[100,100+green*.3,100+green*.6,100+green*.85,100+green],"Suv":[100,100+water*.3,100+water*.6,100+water*.85,100+water],"Qurilish":[100,100+built*.3,100+built*.6,100+built*.85,100+built]})
-    fig=px.line(timeline,x="Yil",y=["Yashil hududlar","Suv","Qurilish"],markers=True,title="Vaqt bo‘yicha shartli o‘zgarish")
-    st.plotly_chart(fig,use_container_width=True)
+    st.plotly_chart(px.line(timeline,x="Yil",y=["Yashil hududlar","Suv","Qurilish"],markers=True,title="Vaqt bo‘yicha shartli o‘zgarish"),use_container_width=True)
     st.download_button("⬇️ Jadvalni CSV qilib yuklab olish",df.to_csv(index=False).encode("utf-8-sig"),"kelajakxarita.csv","text/csv")
     report=f"""# KelajakXarita ssenariy hisoboti
 Yaratilgan: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 Hudud: {region}
 Ssenariy yili: {year}
 Shartli taqqoslash bali: {score:.1f}/100
-
 Taxminlar: yashil hududlar {green:+d}%, suv {water:+d}%, qurilish {built:+d}%, yog‘in {rain:+d}%, sug‘oriladigan yerlar {farm:+d}%, aholi {people:+d}%.
-MUHIM: Bu prototip hisoboti. Ball kalibrlanmagan va haqiqiy prognoz yoki rasmiy statistika emas.
+MUHIM: ball kalibrlanmagan va haqiqiy prognoz yoki rasmiy statistika emas.
 """
     st.download_button("⬇️ Hisobotni yuklab olish",report,"kelajakxarita_hisobot.md","text/markdown")
 
@@ -112,12 +114,11 @@ with tababout:
     st.markdown("""### Loyiha nima qiladi?
 KelajakXarita — hududning bugungi holati va foydalanuvchi kiritgan taxminlar asosida muqobil ssenariylarni solishtirish laboratoriyasi.
 
-**Mavjud:** interaktiv xarita, parametrlar, ssenariy taqqoslash, grafiklar, CSV va hisobot eksporti.
+**Mavjud:** ikki interaktiv xarita, parametrlar, ssenariy taqqoslash, grafiklar, CSV va hisobot eksporti.
 
 **Hali ulanmagan:** rasmiy ma’muriy chegaralar, tarixiy Landsat/Sentinel-2 tasvirlari, NDVI/NDWI hisoblash, serverda saqlash va foydalanuvchi akkauntlari.
 
-**Ilmiy ishonchlilik:** bu relizdagi indeks faqat namoyish uchun. Haqiqiy prognoz uchun manbasi tekshirilgan ma’lumotlar, hujjatlashtirilgan model va validatsiya zarur.
+**Ilmiy ishonchlilik:** indeks faqat namoyish uchun. Haqiqiy prognoz uchun manbasi tekshirilgan ma’lumotlar, hujjatlashtirilgan model va validatsiya zarur.
 
 **Texnologiyalar:** Python, Streamlit, Folium, OpenStreetMap, Plotly, Pandas.""")
-st.divider()
-st.caption("KelajakXarita MVP v0.2 · Sirdaryo pilot · Namoyish prototipi")
+st.divider();st.caption("KelajakXarita MVP v0.3 · Sirdaryo pilot · Ikki xaritali prototip")
