@@ -56,10 +56,44 @@ def make_map(location, zoom, scenario=False):
         for n,(a,b,z) in places.items():
             if n!=region and abs(a-location[0])<.45 and abs(b-location[1])<.55:
                 folium.CircleMarker([a,b],radius=4,color="#0fc9b5",fill=True,fill_opacity=.8,tooltip=n).add_to(fmap)
+
     if scenario and show_scenario:
-        for da,db,label,color,value in [(0.08,-0.08,"Yashil hudud","#12bca8",green),(-.07,.1,"Suv resurslari","#168dd2",water),(.04,.13,"Qurilish","#e6a23c",built)]:
-            folium.CircleMarker([location[0]+da,location[1]+db],radius=max(5,min(14,7+abs(value)/8)),color=color,fill=True,fill_color=color,fill_opacity=.72,tooltip=f"{label} — shartli belgi ({value:+d}%)").add_to(fmap)
-    return fmap
+        year_factor = 1 + max(0, year - 2027) * 0.015
+
+        items = [
+            (0.08, -0.08, "Yashil hududlar", green, "#12bca8"),
+            (-0.07, 0.10, "Suv mavjudligi", water, "#168dd2"),
+            (0.04, 0.13, "Qurilish", built, "#e6a23c"),
+            (-0.12, -0.04, "Yog‘in", rain, "#7b61ff"),
+            (0.12, 0.05, "Sug‘oriladigan yerlar", farm, "#4caf50"),
+            (-0.03, -0.15, "Aholi", people, "#ef5b5b"),
+        ]
+
+        for da, db, label, value, base_color in items:
+            color = base_color if value >= 0 else "#e74c3c"
+            radius_m = int((1800 + abs(value) * 850) * year_factor)
+
+            folium.Circle(
+                [location[0] + da, location[1] + db],
+                radius=radius_m,
+                color=color,
+                fill=True,
+                fill_color=color,
+                fill_opacity=0.22,
+                tooltip=f"{label}: {value:+d}% · {year}-yil",
+            ).add_to(fmap)
+
+            folium.CircleMarker(
+                [location[0] + da, location[1] + db],
+                radius=max(5, min(18, 6 + abs(value) / 3)),
+                color=color,
+                fill=True,
+                fill_color=color,
+                fill_opacity=0.9,
+                tooltip=f"{label}: {value:+d}%",
+            ).add_to(fmap)
+
+  return fmap
 
 with tabmap:
     st.subheader("Bir xil hudud: boshlang‘ich xarita va ssenariy xaritasi")
