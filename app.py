@@ -1,3 +1,163 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import folium
+from streamlit_folium import st_folium
+from datetime import datetime
+
+st.set_page_config(page_title="KelajakXarita", page_icon="🌍", layout="wide")
+
+st.markdown("""<style>
+.block-container{padding-top:1rem;max-width:1800px}
+[data-testid="stSidebar"]{background:#0b2030}
+[data-testid="stSidebar"] *{color:#eefaff}
+.hero{padding:22px;border-radius:16px;background:linear-gradient(120deg,#071826,#0c4a56);color:white}
+.hero h1{color:white;margin:0}.hero p{color:#c4e5e8}
+.map-heading{font-size:1.1rem;font-weight:700;margin-bottom:.2rem}
+</style>""", unsafe_allow_html=True)
+
+places = {
+    "Sirdaryo viloyati": (40.55, 68.78, 10),
+    "Guliston shahri": (40.4897, 68.7842, 12),
+    "Yangiyer shahri": (40.275, 68.822, 12),
+    "Shirin shahri": (40.22, 69.14, 12),
+    "Boyovut tumani": (40.58, 68.90, 11),
+    "Guliston tumani": (40.55, 68.75, 11),
+    "Mirzaobod tumani": (40.45, 68.95, 11),
+    "Oqoltin tumani": (40.27, 68.98, 11),
+    "Sardoba tumani": (40.20, 68.75, 11),
+    "Sayxunobod tumani": (40.66, 68.66, 11),
+    "Sirdaryo tumani": (40.83, 68.66, 11),
+    "Xovos tumani": (40.27, 68.62, 11),
+}
+
+if "saved" not in st.session_state:
+    st.session_state.saved = []
+
+with st.sidebar:
+    st.markdown("## 🌍 KelajakXarita")
+    st.caption("Hududiy ssenariylar laboratoriyasi")
+    region = st.selectbox("Hudud", list(places))
+    show_orientirs = st.checkbox("Yaqin orientirlarni ko‘rsatish", True)
+    show_scenario = st.checkbox("Ssenariy belgilarini ko‘rsatish", True)
+    map_type = st.selectbox("Xarita qatlami", ["OpenStreetMap", "Soddalashtirilgan"])
+    st.divider()
+    year = st.select_slider("Ssenariy yili", [2027, 2030, 2035, 2040], value=2030)
+    st.markdown("### O‘zgartiriladigan taxminlar")
+    green = st.slider("Yashil hududlar (%)", -30, 50, 10, 5)
+    water = st.slider("Suv mavjudligi (%)", -40, 40, 0, 5)
+    built = st.slider("Qurilgan maydon (%)", -20, 40, 5, 5)
+    rain = st.slider("Yog‘in miqdori (%)", -30, 50, 0, 5)
+    farm = st.slider("Sug‘oriladigan yerlar (%)", -30, 20, 0, 5)
+    people = st.slider("Aholi o‘zgarishi (%)", -10, 60, 15, 5)
+
+lat, lon, zoom = places[region]
+st.markdown(
+    '<div class="hero"><h1>🌍 KelajakXarita</h1>'
+    '<p>Bugungi hududni o‘rganing. Muqobil kelajak ssenariylarini '
+    'solishtiring · Sirdaryo pilot</p></div>',
+    unsafe_allow_html=True,
+)
+st.warning(
+    "DEMO: ko‘rsatkichlar namoyish uchun, haqiqiy prognoz emas. "
+    "Rangli belgilar shartli; rasmiy chegaralar emas."
+)
+
+score = max(
+    0,
+    min(100, 50 + 0.30 * green + 0.25 * water - 0.20 * built
+        + 0.08 * rain + 0.10 * farm - 0.05 * max(people, 0)),
+)
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Hudud", region)
+m2.metric("Ssenariy yili", str(year))
+m3.metric("Shartli taqqoslash bali", f"{score:.1f}/100", f"{score - 50:+.1f}")
+m4.metric("Sozlanadigan omillar", "6 ta")
+
+tabmap, tabsc, tabdata, tababout = st.tabs([
+    "🗺️ Xaritalar taqqoslanishi", "🔮 Ssenariylar",
+    "📊 Tahlil va eksport", "ℹ️ Loyiha haqida"
+])
+
+
+def make_map(location, map_zoom, scenario=False):
+    """Boshlang‘ich yoki ssenariy xaritasini yaratadi."""
+    tiles = "OpenStreetMap" if map_type == "OpenStreetMap" else "CartoDB positron"
+    fmap = folium.Map(
+        location=location, zoom_start=map_zoom, tiles=tiles, control_scale=True
+    )
+    folium.Marker(
+        location, tooltip=region, popup=f"{region} — orientir nuqtasi"
+    ).add_to(fmap)
+
+    if show_orientirs:
+        for place_name, (a, b, place_zoom) in places.items():
+            if (place_name != region
+                    and abs(a - location[0]) < 0.45
+                    and abs(b - location[1]) < 0.55):
+                folium.CircleMarker(
+                    [a, b], radius=4, color="#0fc9b5", fill=True,
+                    fill_opacity=0.8, tooltip=place_name
+                ).add_to(fmap)
+
+    if scenario and show_scenario:
+        # Ko‘rgazmali qatlamlar: haqiqiy prognoz emas.
+        year_factor = 1 + max(0, year - 2027) * 0.015
+        items = [
+            (0.08, -0.08, "Yashil hududlar", green, "#12bca8"),
+            (-0.07, 0.10, "Suv mavjudligi", water, "#168dd2"),
+            (0.04, 0.13, "Qurilish", built, "#e6a23c"),
+            (-0.12, -0.04, "Yog‘in", rain, "#7b61ff"),
+            (0.12, 0.05, "Sug‘oriladigan yerlar", farm, "#4caf50"),
+            (-0.03, -0.15, "Aholi", people, "#ef5b5b"),
+        ]
+
+        for da, db, label, value, base_color in items:
+            color = base_color if value >= 0 else "#e74c3c"
+            radius_m = int((1800 + abs(value) * 850) * year_factor)
+            point = [location[0] + da, location[1] + db]
+
+            folium.Circle(
+                point, radius=radius_m, color=color, weight=2, fill=True,
+                fill_color=color, fill_opacity=0.22,
+                tooltip=f"{label}: {value:+d}% · {year}-yil ssenariysi",
+            ).add_to(fmap)
+            folium.CircleMarker(
+                point, radius=max(5, min(18, 6 + abs(value) / 3)),
+                color=color, fill=True, fill_color=color, fill_opacity=0.9,
+                tooltip=f"{label}: {value:+d}%",
+            ).add_to(fmap)
+
+    # To‘g‘ri chekinish: funksiyada, if blokidan tashqarida.
+    return fmap
+
+
+with tabmap:
+    st.subheader("Bir xil hudud: boshlang‘ich xarita va ssenariy xaritasi")
+    st.caption(
+        f"Chapda boshlang‘ich xarita, o‘ngda {year}-yil ssenariysi. "
+        "O‘ng xaritadagi qatlamlar parametrlar va yilga qarab o‘zgaradi."
+    )
+    left, right = st.columns(2, gap="medium")
+    with left:
+        st.markdown(
+            '<div class="map-heading">1. Hozirgi / boshlang‘ich ko‘rinish</div>',
+            unsafe_allow_html=True,
+        )
+        st.caption("Orientir xaritasi · rasmiy o‘lchov emas")
+        st_folium(
+            make_map([lat, lon], zoom, False), key="base_map",
+            use_container_width=True, height=500, returned_objects=[]
+        )
+    with right:
+        st.markdown(
+            f'<div class="map-heading">2. {year}-yil ssenariysi</div>',
+            unsafe_allow_html=True,
+        )
+        st.caption("Shartli parametrlar asosidagi ko‘rgazmali belgilar")
+        st_folium(
+            make_map([lat, lon], zoom, True), key="future_map",
+            use_container_width=True, height=500, returned_objects=[]
         )
 
     st.info(
@@ -126,3 +286,8 @@ tasvirlari, NDVI/NDWI hisoblash, serverda saqlash va foydalanuvchi akkauntlari.
 **Ilmiy ishonchlilik:** indeks va xaritadagi doiralar faqat namoyish uchun.
 Haqiqiy prognoz uchun manbasi tekshirilgan ma’lumotlar, hujjatlashtirilgan
 model va validatsiya zarur.
+
+**Texnologiyalar:** Python, Streamlit, Folium, OpenStreetMap, Plotly, Pandas.""")
+
+st.divider()
+st.caption("KelajakXarita MVP v0.4 · Sirdaryo pilot · Ikki xaritali prototip")
